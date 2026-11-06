@@ -14,7 +14,7 @@ hooks = [{ id = "deptry", language = "python", additional_dependencies = ["deptr
 
 [[repos]]
 repo = "https://github.com/python-jsonschema/check-jsonschema"
-rev = "0.38.2"
+rev = "0.39.0"
 hooks = [{ id = "check-github-workflows" }, { id = "check-taskfile" }]
 
 [[repos]]
@@ -29,17 +29,17 @@ hooks = [{ id = "add-trailing-comma" }]
 
 [[repos]]
 repo = "https://github.com/astral-sh/ruff-pre-commit"
-rev = "v0.17.2"
+rev = "v0.17.4"
 hooks = [{ id = "ruff-check", args = ["--fix"] }, { id = "ruff-format" }]
 
 [[repos]]
 repo = "https://github.com/tombi-toml/tombi-pre-commit"
-rev = "v1.9.5"
+rev = "v1.10.0"
 hooks = [{ id = "tombi-format" }, { id = "tombi-lint" }]
 
 [[repos]]
 repo = "https://github.com/astral-sh/uv-pre-commit"
-rev = "0.13.5"
+rev = "0.13.7"
 hooks = [{ id = "uv-lock" }]
 
 [[repos]]
@@ -48,10 +48,10 @@ hooks = [{ id = "ty-check", name = "ty-check", language = "python", entry = "ty 
 
 [[repos]]
 repo = "https://github.com/zizmorcore/zizmor-pre-commit"
-rev = "v1.31.1"
+rev = "v1.32.0"
 hooks = [{ id = "zizmor", entry = "zizmor --fix=all ." }]
 
 [[repos]]
 repo = "https://github.com/jolars/panache-pre-commit"
-rev = "v3.17.0"
+rev = "v3.17.2"
 hooks = [{ id = "panache-format" }, { id = "panache-lint" }]

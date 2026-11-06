@@ -34,13 +34,13 @@ dev = [
   "mkdocs>=1.6.1",
   "mkdocs-material>=9.8.0",
   "mkdocstrings[python]>=1.0.8",
-  "mypy>=2.4.0",
-  "prek>=0.5.7",
-  "pytest>=9.1.1",
+  "mypy>=2.4.1",
+  "prek>=0.5.10",
+  "pytest>=9.2.0",
   "pytest-cov>=7.1.0",
-  "ruff>=0.17.2",
-  "tox-uv>=1.37.0",
-  "types-requests>=2.33.0.20261006",
+  "ruff>=0.17.4",
+  "tox-uv>=1.37.5",
+  "types-requests>=2.33.0.20261030",
 ]
 
 [build-system]

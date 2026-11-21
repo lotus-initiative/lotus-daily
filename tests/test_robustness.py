@@ -203,7 +203,14 @@ def test_run_bot_skips_failed_candidate_and_falls_back_from_corrupt_cache(monkey
     monkeypatch.setattr(run_bot, "get_molecule_details", fake_details)
     monkeypatch.setattr(run_bot, "post_to_mastodon", fake_post)
 
-    ok = run_bot.run(dry_run=False, use_cache=True, max_retries=1, retry_delay=0.0, max_candidate_attempts=3)
+    ok = run_bot.run(
+        dry_run=False,
+        use_cache=True,
+        max_retries=1,
+        retry_delay=0.0,
+        max_candidate_attempts=3,
+        include_counter=False,
+    )
     assert ok is True
     assert len(posted_messages) == 1
     assert "Q200" in posted_messages[0]
@@ -220,7 +227,14 @@ def test_run_bot_returns_false_when_max_attempts_exhausted(monkeypatch, tmp_path
 
     monkeypatch.setattr(run_bot, "get_molecule_details", always_fail)
 
-    ok = run_bot.run(dry_run=True, use_cache=False, max_retries=1, retry_delay=0.0, max_candidate_attempts=2)
+    ok = run_bot.run(
+        dry_run=True,
+        use_cache=False,
+        max_retries=1,
+        retry_delay=0.0,
+        max_candidate_attempts=2,
+        include_counter=False,
+    )
     assert ok is False
 
 
@@ -277,7 +291,14 @@ def test_run_bot_skips_when_post_to_mastodon_fails(monkeypatch, tmp_path: Path) 
 
     monkeypatch.setattr(run_bot, "post_to_mastodon", flaky_post)
 
-    ok = run_bot.run(dry_run=False, use_cache=False, max_retries=1, retry_delay=0.0, max_candidate_attempts=3)
+    ok = run_bot.run(
+        dry_run=False,
+        use_cache=False,
+        max_retries=1,
+        retry_delay=0.0,
+        max_candidate_attempts=3,
+        include_counter=False,
+    )
     assert ok is True
     assert len(attempts) == 2
     assert log.was_posted("Q200", "Q1308044")

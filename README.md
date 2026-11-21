@@ -110,6 +110,35 @@ To preview the output without posting:
 uv run run_bot.py --dry-run
 ```
 
+### Optional LinkedIn cross-posting
+
+When `LINKEDIN_ACCESS_TOKEN` and `LINKEDIN_AUTHOR_URN` are configured in `.env`
+(see `.env.example`), `run_bot.py` also cross-posts the occurrence with both
+images (molecule depiction + taxon photograph) via LinkedIn's REST API
+(`/rest/images` and `/rest/posts`):
+
+```env
+LINKEDIN_ACCESS_TOKEN=your_oauth_access_token
+# Use urn:li:person:<ID> for a personal profile or urn:li:organization:<ID> for a LinkedIn Page
+LINKEDIN_AUTHOR_URN=urn:li:organization:12345678
+LINKEDIN_API_VERSION=202601
+```
+
+- **Personal profile vs. Organization Page**: posting to an Organization Page
+  (`urn:li:organization:...`) requires a LinkedIn Developer App approved for
+  *Share on LinkedIn* / *Community Management API* with the
+  `w_organization_social` scope and a token belonging to a Page Admin (personal
+  profiles use `w_member_social`).
+- **Token expiration**: standard LinkedIn OAuth access tokens expire after 60
+  days; refresh `LINKEDIN_ACCESS_TOKEN` periodically (or manage a refresh token
+  if granted `offline_access`).
+- **Authoritative origin & edits**: Mastodon remains the authoritative origin
+  (LinkedIn posts link back to the Mastodon status when available).
+  `daily_lotus/check_edits.py` remains Mastodon-only because LinkedIn's API does
+  not allow editing post images after publication.
+- **Skip flags**: `--dry-run` previews without posting to either Mastodon or
+  LinkedIn, and `--no-linkedin` skips LinkedIn even when credentials are set.
+
 Automate daily posting
 
 To schedule daily runs at 8:00 AM:

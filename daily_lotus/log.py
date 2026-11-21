@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 LOG_FILE = "posted_log.json"
 EXTENDED_LOG_FILE = "posted_log_extended.json"
@@ -37,20 +37,13 @@ class PostRecord(TypedDict):
     taxon_label: str
     reference_label: str
     toot_id: str | None
+    linkedin_post_id: NotRequired[str | None]
     timestamp: str
     last_reply_timestamp: str | None
     compound_label_last_checked: str | None
     taxon_label_last_checked: str | None
     reference_label_last_checked: str | None
     p703_exists_last_checked: bool | None
-
-
-# class PostRecord(PostRecord, total=False):  # optional keys go here
-#     last_reply_timestamp: Optional[str]
-#     compound_label_last_checked: Optional[str]
-#     taxon_label_last_checked: Optional[str]
-#     reference_label_last_checked: Optional[str]
-#     p703_exists_last_checked: Optional[bool]
 
 
 def load_extended_log() -> list[PostRecord]:
@@ -68,9 +61,11 @@ def record_post_extended(
     taxon_label: str,
     reference_label: str,
     toot_id: str | None,
+    linkedin_post_id: str | None = None,
 ) -> None:
     log = load_extended_log()
-    log.append({
+    now = datetime.now(timezone.utc).isoformat()
+    record: PostRecord = {
         "compound_qid": compound_qid,
         "taxon_qid": taxon_qid,
         "reference_qid": reference_qid,
@@ -81,9 +76,12 @@ def record_post_extended(
         "reference_label": reference_label,
         "reference_label_last_checked": reference_label,
         "toot_id": toot_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "last_reply_timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now,
+        "last_reply_timestamp": now,
         "p703_exists_last_checked": True,
-    })
+    }
+    if linkedin_post_id is not None:
+        record["linkedin_post_id"] = linkedin_post_id
+    log.append(record)
     with open(EXTENDED_LOG_FILE, "w") as f:
         json.dump(log, f, indent=2)

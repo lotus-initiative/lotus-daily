@@ -2,9 +2,10 @@ import os
 from io import BytesIO
 from typing import Any
 
-import requests
 from dotenv import load_dotenv
 from mastodon import Mastodon
+
+from daily_lotus.media import fetch_image
 
 load_dotenv()
 
@@ -28,22 +29,8 @@ def post_to_mastodon(
     media_ids = []
 
     def upload_image_from_url(url: str, alt_text: str | None) -> Any:
-        headers = {"User-Agent": "DailyLotusBot/0.1 (https://earthmetabolome.org/; contact@earthmetabolome.org)"}
-
-        response = requests.get(url, headers=headers, allow_redirects=True, timeout=30)
-        response.raise_for_status()
-
-        if url.endswith(".svg") or response.headers.get("Content-Type") == "image/svg+xml":
-            from cairosvg import svg2png
-
-            png = BytesIO()
-            svg2png(bytestring=response.content, write_to=png)
-            png.seek(0)
-            return client.media_post(png, mime_type="image/png", description=alt_text)  # Add alt-text here
-        else:
-            img = BytesIO(response.content)
-            mime_type = response.headers.get("Content-Type", "image/jpeg")  # fallback
-            return client.media_post(img, mime_type=mime_type, description=alt_text)  # Add alt-text here
+        image_bytes, mime_type = fetch_image(url)
+        return client.media_post(BytesIO(image_bytes), mime_type=mime_type, description=alt_text)
 
     if image_url:
         media_ids.append(upload_image_from_url(image_url, alt_text=image_alt_text))

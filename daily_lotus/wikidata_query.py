@@ -13,6 +13,8 @@ import requests
 from SPARQLWrapper import JSON, SPARQLWrapper
 from SPARQLWrapper.SPARQLExceptions import SPARQLWrapperException
 
+from daily_lotus.themes import Theme, build_theme_candidate_query, build_theme_details_clause
+
 logger = logging.getLogger(__name__)
 
 QLEVER_ENDPOINT = "https://qlever.dev/api/wikidata"
@@ -173,6 +175,7 @@ def build_depict_url(smiles: str) -> str:
 
 def get_candidate_qids(
     *,
+    theme: Theme | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: float = DEFAULT_RETRY_DELAY,
 ) -> list[str]:
@@ -180,6 +183,8 @@ def get_candidate_qids(
 
     Parameters
     ----------
+    theme : Theme | None
+        Optional theme restricting candidate compounds.
     max_retries : int
         Maximum retry attempts per endpoint.
     retry_delay : float
@@ -190,17 +195,25 @@ def get_candidate_qids(
     list[str]
         Wikidata QIDs for candidate compounds.
     """
-    query = f"""
-    {SPARQL_PREFIXES}
-    SELECT DISTINCT ?compound WHERE {{
-      ?compound wdt:P703 ?taxon ;
-                wdt:P233 [] .
-      ?taxon wdt:P18 ?image .
-    }}
-    LIMIT 500000
-    """
+    if theme is not None:
+        endpoint_queries = [
+            (QLEVER_ENDPOINT, build_theme_candidate_query(theme, use_scholarly_service=False)),
+            (WD_ENDPOINT, build_theme_candidate_query(theme, use_scholarly_service=True)),
+        ]
+    else:
+        query = f"""
+        {SPARQL_PREFIXES}
+        SELECT DISTINCT ?compound WHERE {{
+          ?compound wdt:P703 ?taxon ;
+                    wdt:P233 [] .
+          ?taxon wdt:P18 ?image .
+        }}
+        LIMIT 500000
+        """
+        endpoint_queries = [(QLEVER_ENDPOINT, query), (WD_ENDPOINT, query)]
+
     raw = execute_sparql(
-        [(QLEVER_ENDPOINT, query), (WD_ENDPOINT, query)],
+        endpoint_queries,
         max_retries=max_retries,
         retry_delay=retry_delay,
     )
@@ -208,13 +221,22 @@ def get_candidate_qids(
     return [row["compound"]["value"].split("/")[-1] for row in results]
 
 
-def _build_molecule_details_query(qid: str, *, use_scholarly_service: bool) -> str:
+def _build_molecule_details_query(
+    qid: str,
+    *,
+    use_scholarly_service: bool,
+    theme: Theme | None = None,
+) -> str:
     if use_scholarly_service:
         ref_block = """SERVICE <https://query-scholarly.wikidata.org/sparql> {
         ?reference rdfs:label ?referenceLabel . FILTER (lang(?referenceLabel) = "en")
       }"""
     else:
         ref_block = '?reference rdfs:label ?referenceLabel . FILTER (lang(?referenceLabel) = "en")'
+
+    theme_clause = (
+        build_theme_details_clause(theme, use_scholarly_service=use_scholarly_service) if theme is not None else ""
+    )
 
     return f"""
     {SPARQL_PREFIXES}
@@ -242,6 +264,7 @@ def _build_molecule_details_query(qid: str, *, use_scholarly_service: bool) -> s
       ?compound rdfs:label ?compoundLabel . FILTER (lang(?compoundLabel) = "en")
       ?taxon rdfs:label ?taxonLabel . FILTER (lang(?taxonLabel) = "en")
       {ref_block}
+      {theme_clause}
     }}
     LIMIT 10
     """
@@ -250,6 +273,7 @@ def _build_molecule_details_query(qid: str, *, use_scholarly_service: bool) -> s
 def get_molecule_details(
     qid: str,
     *,
+    theme: Theme | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: float = DEFAULT_RETRY_DELAY,
 ) -> dict[str, str] | None:
@@ -259,6 +283,8 @@ def get_molecule_details(
     ----------
     qid : str
         Wikidata QID of the compound.
+    theme : Theme | None
+        Optional active theme constraining which occurrence row is selected.
     max_retries : int
         Maximum retry attempts per endpoint.
     retry_delay : float
@@ -269,8 +295,8 @@ def get_molecule_details(
     dict[str, str] | None
         Occurrence details dictionary, or ``None`` if no matching occurrence is found.
     """
-    qlever_query = _build_molecule_details_query(qid, use_scholarly_service=False)
-    wdqs_query = _build_molecule_details_query(qid, use_scholarly_service=True)
+    qlever_query = _build_molecule_details_query(qid, use_scholarly_service=False, theme=theme)
+    wdqs_query = _build_molecule_details_query(qid, use_scholarly_service=True, theme=theme)
     raw = execute_sparql(
         [(QLEVER_ENDPOINT, qlever_query), (WD_ENDPOINT, wdqs_query)],
         max_retries=max_retries,

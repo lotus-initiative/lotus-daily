@@ -74,7 +74,14 @@ def test_logging_cli_args(tmp_path: Path) -> None:
         handler.close()
 
     custom_file = tmp_path / "custom.log"
-    args_with_file = parser.parse_args(["--log-file", str(custom_file), "--max-log-bytes", "1024", "--log-backup-count", "1"])
+    args_with_file = parser.parse_args([
+        "--log-file",
+        str(custom_file),
+        "--max-log-bytes",
+        "1024",
+        "--log-backup-count",
+        "1",
+    ])
     logger = configure_logging_from_args(args_with_file, "bot.log", name="test_cli_logger_2")
     assert len(logger.handlers) == 2
     logger.info("hello cli")

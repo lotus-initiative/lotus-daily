@@ -42,12 +42,22 @@ def _resolve_positive_int(value: int | None, env_var: str, default: int, *, mini
     return parsed if parsed >= minimum else default
 
 
+_LEVEL_MAP: dict[str, int] = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "WARN": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "NOTSET": logging.NOTSET,
+}
+
+
 def _resolve_level(level: int | str | None) -> int:
     candidate = level if level is not None else (os.getenv("LOTUS_LOG_LEVEL") or DEFAULT_LOG_LEVEL)
     if isinstance(candidate, int):
         return candidate
-    numeric = logging.getLevelName(candidate.strip().upper())
-    return numeric if isinstance(numeric, int) else logging.INFO
+    return _LEVEL_MAP.get(candidate.strip().upper(), logging.INFO)
 
 
 def _reset_handlers(logger: logging.Logger) -> None:
@@ -89,7 +99,12 @@ def setup_logging(
     """
     resolved_level = _resolve_level(level)
     resolved_max_bytes = _resolve_positive_int(max_bytes, "LOTUS_LOG_MAX_BYTES", DEFAULT_MAX_BYTES, minimum=1)
-    resolved_backup_count = _resolve_positive_int(backup_count, "LOTUS_LOG_BACKUP_COUNT", DEFAULT_BACKUP_COUNT, minimum=0)
+    resolved_backup_count = _resolve_positive_int(
+        backup_count,
+        "LOTUS_LOG_BACKUP_COUNT",
+        DEFAULT_BACKUP_COUNT,
+        minimum=0,
+    )
 
     logger = logging.getLogger(name)
     _reset_handlers(logger)

@@ -75,7 +75,9 @@ def _order_endpoint_queries(endpoint_queries: Sequence[tuple[str, str]]) -> list
         if endpoint == override:
             return [(endpoint, query), *ordered[:index], *ordered[index + 1 :]]
 
-    default_query = ordered[-1][1] if "wikidata.org" in override else ordered[0][1]
+    host = (urllib.parse.urlparse(override).hostname or "").lower()
+    is_wikidata = host == "wikidata.org" or host.endswith(".wikidata.org")
+    default_query = ordered[-1][1] if is_wikidata else ordered[0][1]
     return [(override, default_query), *ordered]
 
 

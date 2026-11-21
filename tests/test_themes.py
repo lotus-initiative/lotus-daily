@@ -56,14 +56,14 @@ def test_build_theme_queries_and_details_clauses() -> None:
         reference_year_cutoff=2024,
     )
     assert "2024-01-01T00:00:00Z" in freshest_qlever
-    assert "query-scholarly.wikidata.org" not in freshest_qlever
+    assert "SERVICE <https://query-scholarly.wikidata.org/sparql>" not in freshest_qlever
 
     freshest_wdqs = themes.build_theme_candidate_query(
         themes.get_theme("freshest"),
         use_scholarly_service=True,
         reference_year_cutoff=2024,
     )
-    assert "query-scholarly.wikidata.org" in freshest_wdqs
+    assert "SERVICE <https://query-scholarly.wikidata.org/sparql>" in freshest_wdqs
     assert "2024-01-01T00:00:00Z" in freshest_wdqs
 
     details_qlever = themes.build_theme_details_clause(
@@ -77,8 +77,8 @@ def test_build_theme_queries_and_details_clauses() -> None:
         reference_year_cutoff=2024,
     )
     assert "wdt:P577" in details_qlever
-    assert "query-scholarly.wikidata.org" not in details_qlever
-    assert "query-scholarly.wikidata.org" in details_wdqs
+    assert "SERVICE <https://query-scholarly.wikidata.org/sparql>" not in details_qlever
+    assert "SERVICE <https://query-scholarly.wikidata.org/sparql>" in details_wdqs
 
 
 def test_compose_message_with_theme_header_and_hashtag() -> None:

@@ -3,7 +3,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 LOG_FILE = "posted_log.json"
 EXTENDED_LOG_FILE = "posted_log_extended.json"
@@ -45,10 +45,11 @@ def load_log() -> list[tuple[str, str]]:
         return [tuple(item) for item in data]  # Convert list[list[str]] → list[tuple[str, str]]
 
 
-def load_extended_log() -> list["PostRecord"]:
-    if not os.path.exists(EXTENDED_LOG_FILE):
+def load_extended_log(path: Path | str | None = None) -> list["PostRecord"]:
+    target = Path(path) if path is not None else Path(EXTENDED_LOG_FILE)
+    if not target.exists():
         return []
-    with open(EXTENDED_LOG_FILE, encoding="utf-8") as f:
+    with target.open(encoding="utf-8") as f:
         return cast(list[PostRecord], json.load(f))
 
 
@@ -95,6 +96,8 @@ class PostRecord(TypedDict):
     taxon_label_last_checked: str | None
     reference_label_last_checked: str | None
     p703_exists_last_checked: bool | None
+    smiles: NotRequired[str | None]
+    smiles_last_checked: NotRequired[str | None]
 
 
 def record_post_extended(
@@ -105,10 +108,11 @@ def record_post_extended(
     taxon_label: str,
     reference_label: str,
     toot_id: str | None,
+    smiles: str | None = None,
 ) -> None:
     log = load_extended_log()
     now = datetime.now(timezone.utc).isoformat()
-    log.append({
+    record: PostRecord = {
         "compound_qid": compound_qid,
         "taxon_qid": taxon_qid,
         "reference_qid": reference_qid,
@@ -122,5 +126,9 @@ def record_post_extended(
         "timestamp": now,
         "last_reply_timestamp": now,
         "p703_exists_last_checked": True,
-    })
+    }
+    if smiles is not None:
+        record["smiles"] = smiles
+        record["smiles_last_checked"] = smiles
+    log.append(record)
     save_extended_log(log)

@@ -5,7 +5,7 @@ import time
 import urllib.error
 import urllib.parse
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timezone
 from itertools import pairwise
 from typing import Any, cast
 
@@ -306,32 +306,58 @@ def get_molecule_details(
     }
 
 
+def _request_json_with_retry(
+    url: str,
+    *,
+    params: dict[str, str] | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay: float = DEFAULT_RETRY_DELAY,
+    timeout: int = 10,
+) -> dict[str, Any]:
+    headers = {"User-Agent": USER_AGENT}
+    attempts = max(1, max_retries)
+    for attempt in range(attempts):
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except requests.RequestException as exc:
+            if attempt + 1 >= attempts:
+                raise
+            logger.warning("HTTP JSON request failed for %s (attempt %d/%d): %s", url, attempt + 1, attempts, exc)
+            if retry_delay > 0:
+                time.sleep(retry_delay * (2**attempt))
+    raise RuntimeError(url)  # pragma: no cover
+
+
 def get_revisions(qid: str, since: datetime) -> list[dict[str, Any]]:
+    since_utc = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since.astimezone(timezone.utc)
     url = "https://www.wikidata.org/w/api.php"
     params = {
         "action": "query",
         "prop": "revisions",
         "titles": qid,
         "rvprop": "ids|timestamp|user",
+        "rvstart": since_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "rvlimit": "50",
         "rvdir": "newer",
         "formatversion": "2",
         "format": "json",
     }
-    headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, params=params, headers=headers, timeout=10)
-    response.raise_for_status()
-    data = response.json()
+    data = _request_json_with_retry(url, params=params, timeout=10)
     pages = data.get("query", {}).get("pages", [])
-    return cast(list[dict[str, Any]], pages[0]["revisions"]) if pages and "revisions" in pages[0] else []
+    revs = cast(list[dict[str, Any]], pages[0]["revisions"]) if pages and "revisions" in pages[0] else []
+    if revs:
+        parentid = revs[0].get("parentid")
+        if isinstance(parentid, int) and parentid > 0:
+            return [{"revid": parentid}, *revs]
+    return revs
 
 
 def get_entity_data(qid: str, revid: int) -> dict[str, Any]:
     url = f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json?revision={revid}"
-    headers = {"User-Agent": USER_AGENT}
-    r = requests.get(url, headers=headers, timeout=10)
-    r.raise_for_status()
-    return cast(dict[str, Any], r.json()["entities"][qid])
+    data = _request_json_with_retry(url, timeout=10)
+    return cast(dict[str, Any], data["entities"][qid])
 
 
 def get_label_from_revision(qid: str, revid: int) -> str | None:
@@ -392,15 +418,77 @@ def get_label_change_editor(qid: str, old_label: str, since: datetime) -> str | 
     return compare_revisions_for_change(qid, get_revisions(qid, since), extract_label, old_label)
 
 
-def get_smiles_change_editor(qid: str, old_smiles: str, since: datetime) -> str | None:
-    def extractor(data: dict[str, Any]) -> str | None:
-        for claim in data.get("claims", {}).get("P2017", []):
-            val = claim.get("mainsnak", {}).get("datavalue", {}).get("value")
-            if isinstance(val, str):
-                return val
-        return None
+def _extract_first_string_claim(data: dict[str, Any], prop: str) -> str | None:
+    for claim in data.get("claims", {}).get(prop, []):
+        val = claim.get("mainsnak", {}).get("datavalue", {}).get("value")
+        if isinstance(val, str):
+            return val
+    return None
 
-    return compare_revisions_for_change(qid, get_revisions(qid, since), extractor, old_smiles)
+
+def extract_smiles(data: dict[str, Any]) -> str | None:
+    """Extract preferred SMILES (``P2017`` isomeric, else ``P233`` canonical) from entity JSON.
+
+    Parameters
+    ----------
+    data : dict[str, Any]
+        Wikidata entity dictionary from ``Special:EntityData``.
+
+    Returns
+    -------
+    str | None
+        SMILES string if present, else ``None``.
+    """
+    return _extract_first_string_claim(data, "P2017") or _extract_first_string_claim(data, "P233")
+
+
+def get_smiles_change_editor(qid: str, old_smiles: str, since: datetime) -> str | None:
+    """Find the Wikidata editor who changed a compound's SMILES (``P2017`` or ``P233``).
+
+    Parameters
+    ----------
+    qid : str
+        Compound Wikidata QID.
+    old_smiles : str
+        Previously recorded SMILES string.
+    since : datetime
+        Start timestamp for inspecting revisions.
+
+    Returns
+    -------
+    str | None
+        Editor username/IP if found, else ``None``.
+    """
+    return compare_revisions_for_change(qid, get_revisions(qid, since), extract_smiles, old_smiles)
+
+
+def fetch_current_smiles(compound_qid: str) -> str:
+    """Fetch the current preferred SMILES (``P2017`` else ``P233``) from Wikidata.
+
+    Parameters
+    ----------
+    compound_qid : str
+        Compound Wikidata QID.
+
+    Returns
+    -------
+    str
+        Current SMILES string, or empty string if missing.
+    """
+    query = f"""
+    {SPARQL_PREFIXES}
+    SELECT ?smiles WHERE {{
+      OPTIONAL {{ wd:{compound_qid} wdt:P2017 ?smiles_i . }}
+      OPTIONAL {{ wd:{compound_qid} wdt:P233 ?smiles_c . }}
+      BIND(COALESCE(?smiles_i, ?smiles_c) AS ?smiles)
+    }}
+    LIMIT 1
+    """
+    raw = execute_sparql([(WD_ENDPOINT, query)])
+    bindings = raw.get("results", {}).get("bindings", [])
+    if not bindings:
+        return ""
+    return str(bindings[0].get("smiles", {}).get("value", ""))
 
 
 def get_reference_label_change_editor(qid: str, old_label: str, since: datetime) -> str | None:

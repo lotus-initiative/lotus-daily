@@ -125,6 +125,7 @@ def _publish_candidate(
             taxon_label=details["taxon"],
             reference_label=details["reference"],
             toot_id=toot_id,
+            smiles=details.get("smiles"),
         )
     except OSError:
         logger.exception("⚠️ Posted toot %s, but failed to write extended log.", toot_id)

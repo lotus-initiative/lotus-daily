@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 import requests
 
 import run_bot
@@ -41,7 +40,7 @@ def test_execute_sparql_retries_and_falls_back(monkeypatch) -> None:
         def query(self) -> FakeQueryResult:
             calls.append((self.endpoint, self.query_text))
             if self.endpoint == wikidata_query.QLEVER_ENDPOINT:
-                raise TimeoutError("qlever timed out")
+                raise TimeoutError("timeout")
             return FakeQueryResult({"results": {"bindings": [{"ok": {"value": "1"}}]}})
 
     monkeypatch.setattr(wikidata_query, "SPARQLWrapper", FakeSPARQLWrapper)
@@ -81,12 +80,20 @@ def test_execute_sparql_raises_when_all_fail(monkeypatch) -> None:
             pass
 
         def query(self) -> Any:
-            raise TimeoutError("always fails")
+            raise TimeoutError("timeout")
 
     monkeypatch.setattr(wikidata_query, "SPARQLWrapper", FailingSPARQLWrapper)
 
-    with pytest.raises(wikidata_query.SparqlQueryError):
-        wikidata_query.execute_sparql([(wikidata_query.WD_ENDPOINT, "SELECT * WHERE {}")], max_retries=2, retry_delay=0.0)
+    raised = False
+    try:
+        wikidata_query.execute_sparql(
+            [(wikidata_query.WD_ENDPOINT, "SELECT * WHERE {}")],
+            max_retries=2,
+            retry_delay=0.0,
+        )
+    except wikidata_query.SparqlQueryError:
+        raised = True
+    assert raised
 
 
 def test_was_posted_checks_both_logs_and_atomic_write(monkeypatch, tmp_path: Path) -> None:
@@ -130,7 +137,7 @@ def test_fetch_image_retries_and_converts_svg(monkeypatch) -> None:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            raise requests.ConnectionError("transient network error")
+            raise requests.ConnectionError("transient")
         svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
         return FakeResponse(svg, "image/svg+xml; charset=utf-8")
 
@@ -229,18 +236,22 @@ def test_post_to_mastodon_does_not_post_status_when_image_fetch_fails(monkeypatc
             return {"id": "1"}
 
     def fail_fetch(*args: Any, **kwargs: Any) -> tuple[bytes, str]:
-        raise requests.ConnectionError("image host unreachable")
+        raise requests.ConnectionError("unreachable")
 
     monkeypatch.setattr(mastodon_client, "get_client", FakeClient)
     monkeypatch.setattr(mastodon_client, "fetch_image", fail_fetch)
 
-    with pytest.raises(requests.ConnectionError):
+    raised = False
+    try:
         mastodon_client.post_to_mastodon(
             "hello",
             image_url="https://example.org/mol.png",
             max_retries=1,
             retry_delay=0.0,
         )
+    except requests.ConnectionError:
+        raised = True
+    assert raised
     assert status_calls == []
 
 
@@ -261,7 +272,7 @@ def test_run_bot_skips_when_post_to_mastodon_fails(monkeypatch, tmp_path: Path) 
     def flaky_post(message: str, **kwargs: Any) -> dict[str, Any]:
         attempts.append(message)
         if "Q100" in message:
-            raise requests.ConnectionError("media server down")
+            raise requests.ConnectionError("unreachable")
         return {"id": "777"}
 
     monkeypatch.setattr(run_bot, "post_to_mastodon", flaky_post)

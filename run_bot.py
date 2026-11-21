@@ -1,26 +1,30 @@
 import argparse
 import json
+import logging
 import secrets
 
 from daily_lotus.formatter import MessageTooLongError, compose_message
 from daily_lotus.log import record_post_extended, was_posted
+from daily_lotus.logging_config import add_logging_args, configure_logging_from_args
 from daily_lotus.mastodon_client import post_to_mastodon
 from daily_lotus.wikidata_query import get_candidate_qids, get_molecule_details
 
+logger = logging.getLogger("daily_lotus.run_bot")
 
-def run(dry_run: bool = False, use_cache: bool = False):
+
+def run(dry_run: bool = False, use_cache: bool = False) -> None:
     if use_cache:
-        print("📦 Loading candidate compound QIDs from cache (candidates.json)...")
+        logger.info("📦 Loading candidate compound QIDs from cache (candidates.json)...")
         with open("candidates.json") as f:
             qids = json.load(f)
     else:
-        print("📡 Fetching candidate compound QIDs from Wikidata...")
+        logger.info("📡 Fetching candidate compound QIDs from Wikidata...")
         qids = get_candidate_qids()
 
     secrets.SystemRandom().shuffle(qids)
 
     for qid in qids:
-        print(f"🔍 Trying compound {qid}...")
+        logger.info("🔍 Trying compound %s...", qid)
         details = get_molecule_details(qid)
 
         if not details:
@@ -30,7 +34,7 @@ def run(dry_run: bool = False, use_cache: bool = False):
         taxon_qid = details["taxon_qid"]
 
         if was_posted(compound_qid, taxon_qid):
-            print(f"⏩ Already posted {compound_qid} + {taxon_qid}, skipping.")
+            logger.info("⏩ Already posted %s + %s, skipping.", compound_qid, taxon_qid)
             continue
 
         try:
@@ -45,8 +49,8 @@ def run(dry_run: bool = False, use_cache: bool = False):
                 kingdom_label=details["kingdom_label"],
             )
         except MessageTooLongError as e:
-            print(str(e))
-            print("⏭️ Skipping this compound-taxon pair due to length constraints.")
+            logger.warning("%s", e)
+            logger.info("⏭️ Skipping this compound-taxon pair due to length constraints.")
             continue
 
         # Set alt-text for both images
@@ -54,16 +58,14 @@ def run(dry_run: bool = False, use_cache: bool = False):
         taxon_image_alt_text = f"Image of {details['taxon']}, the taxon in which the compound is found."
 
         if dry_run:
-            print("🧪 Dry run mode — not posting to Mastodon.")
-            print("------ Message ------")
-            print(message)
-            print("🖼 Molecule image URL:", details.get("image_url"))
-            print("🖼 Taxon image URL:", details.get("taxon_image_url"))
-            print("🖼 Molecule Alt-Text:", image_alt_text)
-            print("🖼 Taxon Alt-Text:", taxon_image_alt_text)
+            logger.info("🧪 Dry run mode — not posting to Mastodon.")
+            logger.info("------ Message ------\n%s", message)
+            logger.info("🖼 Molecule image URL: %s", details.get("image_url"))
+            logger.info("🖼 Taxon image URL: %s", details.get("taxon_image_url"))
+            logger.info("🖼 Molecule Alt-Text: %s", image_alt_text)
+            logger.info("🖼 Taxon Alt-Text: %s", taxon_image_alt_text)
         else:
-            print("🟢 Posting:")
-            print(message)
+            logger.info("🟢 Posting:\n%s", message)
             status = post_to_mastodon(
                 message,
                 image_url=details.get("image_url"),
@@ -82,10 +84,10 @@ def run(dry_run: bool = False, use_cache: bool = False):
                 reference_label=details["reference"],
                 toot_id=toot_id,
             )
-            print("✅ Posted and logged.")
+            logger.info("✅ Posted and logged.")
         break
     else:
-        print("❌ No new unique compound-taxon pair found.")
+        logger.warning("❌ No new unique compound-taxon pair found.")
 
 
 if __name__ == "__main__":
@@ -96,6 +98,8 @@ if __name__ == "__main__":
         action="store_true",
         help="Load candidate QIDs from candidates.json instead of querying Wikidata.",
     )
+    add_logging_args(parser, "daily_lotus.log")
     args = parser.parse_args()
+    configure_logging_from_args(args, "daily_lotus.log")
 
     run(dry_run=args.dry_run, use_cache=args.use_cache)

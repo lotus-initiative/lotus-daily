@@ -143,3 +143,5 @@ posted_log.json
 clientcred.secret
 register_app.py
 candidates.json
+logs/
+occurrence_stats.json

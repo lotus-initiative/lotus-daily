@@ -1,10 +1,12 @@
 import argparse
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
 from daily_lotus.log import PostRecord, load_extended_log
+from daily_lotus.logging_config import add_logging_args, configure_logging_from_args
 from daily_lotus.mastodon_client import post_to_mastodon
 from daily_lotus.wikidata_query import (
     fetch_current_labels,
@@ -13,6 +15,8 @@ from daily_lotus.wikidata_query import (
     get_reference_label_change_editor,
     occurrence_still_exists,
 )
+
+logger = logging.getLogger("daily_lotus.check_edits")
 
 LOG_FILE = Path("posted_log_extended.json")
 DEBUG_LOG_FILE = Path("posted_log_extended.dryrun.json")
@@ -86,16 +90,16 @@ def was_occurrence_deleted(entry: PostRecord, since: datetime) -> str | None:
     # Check for P703 relationship removal
     if not occurrence_exists:
         if entry.get("p703_exists_last_checked", True):
-            print("❌ Occurrence was deleted from Wikidata!")
+            logger.info("❌ Occurrence was deleted from Wikidata!")
             editor = find_p703_removal_editor(entry["compound_qid"], entry["taxon_qid"], since)
             if editor:
-                print(f"👤 P703 deleted by: {editor}")
+                logger.info("👤 P703 deleted by: %s", editor)
             entry["p703_exists_last_checked"] = False  # Store the status of the relationship
             return editor
     else:
         # If the relationship is added back, update the status
         if entry.get("p703_exists_last_checked", False) is False:
-            print("✔️ P703 added back to the occurrence.")
+            logger.info("✔️ P703 added back to the occurrence.")
             entry["p703_exists_last_checked"] = True  # Update status to True
     return None
 
@@ -156,10 +160,10 @@ def get_label_changes(entry: PostRecord, since: datetime) -> tuple[list[tuple[st
 
 
 def process_entry(entry: PostRecord, dry_run: bool) -> bool:
-    print(f"\n🔎 Checking {entry['compound_qid']} + {entry['taxon_qid']} + {entry['reference_qid']}")
+    logger.info("\n🔎 Checking %s + %s + %s", entry["compound_qid"], entry["taxon_qid"], entry["reference_qid"])
 
     if not entry.get("toot_id"):
-        print("⚠️ No toot_id available, skipping.")
+        logger.warning("⚠️ No toot_id available, skipping.")
         return False
 
     since_str = cast(str, entry.get("last_reply_timestamp", entry["timestamp"]))
@@ -180,13 +184,13 @@ def process_entry(entry: PostRecord, dry_run: bool) -> bool:
     editors.extend(label_editors)
 
     if not deleted and not changes:
-        print("✅ No changes found.")
+        logger.info("✅ No changes found.")
         return False
 
     if changes:
-        print(f"✏️ Detected edits: {changes}")
+        logger.info("✏️ Detected edits: %s", changes)
     if editors:
-        print(f"👤 Edited by: {', '.join(editors)}")
+        logger.info("👤 Edited by: %s", ", ".join(editors))
 
     # Format and post reply
     reply = format_unified_summary(
@@ -197,25 +201,25 @@ def process_entry(entry: PostRecord, dry_run: bool) -> bool:
         taxon_label=entry["taxon_label"],
         compound_qid=entry["compound_qid"],
     )
-    print("📣 Replying with:\n", reply)
+    logger.info("📣 Replying with:\n%s", reply)
 
     # We only post if editors are loged
     if not editors:
-        print("⚠️ No editors found, not posting to Mastodon.")
+        logger.warning("⚠️ No editors found, not posting to Mastodon.")
         return False
     if not dry_run and editors:
         post_to_mastodon(reply, in_reply_to_id=entry["toot_id"])
         entry["last_reply_timestamp"] = datetime.now(tz=timezone.utc).isoformat()
     else:
-        print("💤 Dry run: not posting to Mastodon.")
+        logger.info("💤 Dry run: not posting to Mastodon.")
 
     return True
 
 
 def check_edits(dry_run: bool = False) -> None:
     # The time is also logged in the log file
-    print(f"🕒 It is: {datetime.now(tz=timezone.utc).isoformat()}")
-    print("🔍 Checking for edits to previously posted occurrences...")
+    logger.info("🕒 It is: %s", datetime.now(tz=timezone.utc).isoformat())
+    logger.info("🔍 Checking for edits to previously posted occurrences...")
     log = load_extended_log()
     changed = False
 
@@ -225,15 +229,16 @@ def check_edits(dry_run: bool = False) -> None:
 
     if changed:
         if dry_run:
-            print("📝 Dry run mode: would update log with:")
-            print(json.dumps(log, indent=2))
+            logger.info("📝 Dry run mode: would update log with:\n%s", json.dumps(log, indent=2))
         else:
             LOG_FILE.write_text(json.dumps(log, indent=2))
-            print("📝 Updated log with new reply timestamps.")
+            logger.info("📝 Updated log with new reply timestamps.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check for Wikidata edits and reply on Mastodon.")
     parser.add_argument("--dry-run", action="store_true", help="Print reply messages without posting to Mastodon.")
+    add_logging_args(parser, "check_edits.log")
     args = parser.parse_args()
+    configure_logging_from_args(args, "check_edits.log")
     check_edits(dry_run=args.dry_run)

@@ -169,57 +169,64 @@ def was_occurrence_deleted(entry: PostRecord, since: datetime) -> str | None:
     return None
 
 
+def _set_last_checked_label(entry: PostRecord, field: str, value: str) -> None:
+    if field == "compound":
+        entry["compound_label_last_checked"] = value
+    elif field == "taxon":
+        entry["taxon_label_last_checked"] = value
+    elif field == "reference":
+        entry["reference_label_last_checked"] = value
+
+
 def get_label_changes(entry: PostRecord, since: datetime) -> tuple[list[tuple[str, str, str]], list[str]]:
-    changes = []
-    editors = []
+    changes: list[tuple[str, str, str]] = []
+    editors: list[str] = []
     result = fetch_current_labels(entry["compound_qid"], entry["taxon_qid"], entry["reference_qid"])
 
     # For each label (compound, taxon, reference), compare the current value with the last checked value
-    for field, qid, last_checked_label, new_label_fn, editor_fn in [
+    fields = [
         (
             "compound",
             entry["compound_qid"],
-            entry.get("compound_label_last_checked", ""),  # Use an empty string if None
-            lambda r: r["compound_label"],
+            entry.get("compound_label_last_checked"),
+            result["compound_label"],
             get_label_change_editor,
         ),
         (
             "taxon",
             entry["taxon_qid"],
-            entry.get("taxon_label_last_checked", ""),
-            lambda r: r["taxon_label"],
+            entry.get("taxon_label_last_checked"),
+            result["taxon_label"],
             get_label_change_editor,
         ),
         (
             "reference",
             entry["reference_qid"],
-            entry.get("reference_label_last_checked", ""),  # Use an empty string if None
-            lambda r: r["reference_label"],
+            entry.get("reference_label_last_checked"),
+            result["reference_label"],
             get_reference_label_change_editor,
         ),
-    ]:
-        new_label = new_label_fn(result)
+    ]
+    for field, qid, raw_last_checked, raw_new_label, editor_fn in fields:
+        new_label = raw_new_label if raw_new_label is not None else ""
+        last_checked_label = raw_last_checked if raw_last_checked is not None else ""
+        if new_label == last_checked_label:
+            continue
 
-        # Ensure new_label is always a string, default to empty string if None
-        new_label = new_label if new_label is not None else ""
+        editor = editor_fn(qid, last_checked_label, since)
+        if not new_label and last_checked_label and not editor:
+            logger.info("⏭️ Ignoring transient empty %s label for %s.", field, qid)
+            continue
 
-        # Ensure last_checked_label is always a string, default to empty string if None
-        last_checked_label = last_checked_label if last_checked_label is not None else ""
+        if not last_checked_label and new_label and not editor:
+            logger.info("🩺 Healing empty %s label baseline for %s without posting.", field, qid)
+            _set_last_checked_label(entry, field, new_label)
+            continue
 
-        # If label is unchanged, skip it
-        if new_label != last_checked_label:
-            changes.append((field, last_checked_label, new_label))  # This will always be a valid tuple
-            editor = editor_fn(qid, last_checked_label, since)
-            if editor:
-                editors.append(editor)
-
-            # Update the last checked label
-            if field == "compound":
-                entry["compound_label_last_checked"] = new_label
-            elif field == "taxon":
-                entry["taxon_label_last_checked"] = new_label
-            elif field == "reference":
-                entry["reference_label_last_checked"] = new_label
+        changes.append((field, last_checked_label, new_label))
+        if editor:
+            editors.append(editor)
+        _set_last_checked_label(entry, field, new_label)
 
     return changes, editors
 
@@ -329,9 +336,19 @@ def process_entry(entry: PostRecord, dry_run: bool) -> bool:
     if deleted_by is not None:
         editors.append(deleted_by)
 
+    label_snapshot = (
+        entry.get("compound_label_last_checked"),
+        entry.get("taxon_label_last_checked"),
+        entry.get("reference_label_last_checked"),
+    )
     label_changes, label_editors = get_label_changes(entry, since)
     changes.extend(label_changes)
     editors.extend(label_editors)
+    labels_healed = label_snapshot != (
+        entry.get("compound_label_last_checked"),
+        entry.get("taxon_label_last_checked"),
+        entry.get("reference_label_last_checked"),
+    )
 
     smiles_change, smiles_editor, smiles_baseline_initialized = get_smiles_change(entry, since)
     new_smiles = smiles_change[2] if smiles_change else None
@@ -341,8 +358,8 @@ def process_entry(entry: PostRecord, dry_run: bool) -> bool:
         editors.append(smiles_editor)
 
     if not deleted and not changes:
-        if smiles_baseline_initialized:
-            logger.info("📌 Initialized SMILES baseline without posting.")
+        if smiles_baseline_initialized or labels_healed:
+            logger.info("📌 Initialized or healed baseline without posting.")
             return True
         logger.info("✅ No changes found.")
         return False

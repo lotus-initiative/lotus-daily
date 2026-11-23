@@ -108,7 +108,8 @@ def _upload_media_with_retry(
     for attempt in range(attempts):
         try:
             return cast(
-                MediaAttachment, client.media_post(BytesIO(image_bytes), mime_type=mime_type, description=alt_text)
+                MediaAttachment,
+                client.media_post(BytesIO(image_bytes), mime_type=mime_type, description=alt_text),
             )
         except (MastodonError, OSError, requests.RequestException) as exc:
             if attempt + 1 >= attempts:

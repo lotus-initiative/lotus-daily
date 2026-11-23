@@ -363,7 +363,10 @@ if __name__ == "__main__":
         help="Load candidate QIDs from candidates.json instead of querying Wikidata.",
     )
     parser.add_argument(
-        "--max-retries", type=int, default=3, help="Max attempts per SPARQL, media or status operation."
+        "--max-retries",
+        type=int,
+        default=3,
+        help="Max attempts per SPARQL, media or status operation.",
     )
     parser.add_argument("--retry-delay", type=float, default=5.0, help="Base delay in seconds between retries.")
     parser.add_argument(

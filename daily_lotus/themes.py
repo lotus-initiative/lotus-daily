@@ -12,6 +12,8 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 """.strip()
 
+_WD_SCHOLARLY_ENDPOINT = "https://query-scholarly-next.wikidata.org/sparql"
+
 
 class UnknownThemeError(ValueError):
     """Raised when an unrecognized theme slug is requested."""
@@ -187,7 +189,7 @@ def _build_freshest_candidate_query(
         return f"""
         {_SPARQL_PREFIXES}
         SELECT DISTINCT ?compound WHERE {{
-          SERVICE <https://query-scholarly.wikidata.org/sparql> {{
+          SERVICE <{_WD_SCHOLARLY_ENDPOINT}> {{
             SELECT ?reference ?pub_date WHERE {{
               ?reference wdt:P577 ?pub_date .
               FILTER(?pub_date >= {cutoff_literal})
@@ -301,7 +303,7 @@ def build_theme_details_clause(
     if cutoff is not None:
         date_filter = f'?reference wdt:P577 ?pub_date . FILTER(?pub_date >= "{cutoff}-01-01T00:00:00Z"^^xsd:dateTime)'
         if use_scholarly_service:
-            clauses.append(f"SERVICE <https://query-scholarly.wikidata.org/sparql> {{\n        {date_filter}\n      }}")
+            clauses.append(f"SERVICE <{_WD_SCHOLARLY_ENDPOINT}> {{\n        {date_filter}\n      }}")
         else:
             clauses.append(date_filter)
 

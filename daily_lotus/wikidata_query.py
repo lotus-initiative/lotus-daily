@@ -18,7 +18,8 @@ from daily_lotus.themes import Theme, build_theme_candidate_query, build_theme_d
 logger = logging.getLogger(__name__)
 
 QLEVER_ENDPOINT = "https://qlever.dev/api/wikidata"
-WD_ENDPOINT = "https://query.wikidata.org/sparql"
+WD_ENDPOINT = "https://query-next.wikidata.org/sparql"
+WD_SCHOLARLY_ENDPOINT = "https://query-scholarly-next.wikidata.org/sparql"
 USER_AGENT = "DailyLotusBot/0.1 (https://www.earthmetabolome.org/; contact@earthmetabolome.org)"
 DEFAULT_SPARQL_TIMEOUT = 45
 DEFAULT_MAX_RETRIES = 3
@@ -230,9 +231,9 @@ def _build_molecule_details_query(
     theme: Theme | None = None,
 ) -> str:
     if use_scholarly_service:
-        ref_block = """SERVICE <https://query-scholarly.wikidata.org/sparql> {
+        ref_block = f"""SERVICE <{WD_SCHOLARLY_ENDPOINT}> {{
         ?reference rdfs:label ?referenceLabel . FILTER (lang(?referenceLabel) = "en")
-      }"""
+      }}"""
     else:
         ref_block = '?reference rdfs:label ?referenceLabel . FILTER (lang(?referenceLabel) = "en")'
 
@@ -542,7 +543,7 @@ def fetch_current_labels(compound_qid: str, taxon_qid: str, reference_qid: str) 
     SELECT ?compoundLabel ?taxonLabel ?referenceLabel WHERE {{
       OPTIONAL {{ wd:{compound_qid} rdfs:label ?compoundLabel . FILTER(LANG(?compoundLabel) = "en") }}
       OPTIONAL {{ wd:{taxon_qid} rdfs:label ?taxonLabel . FILTER(LANG(?taxonLabel) = "en") }}
-      SERVICE <https://query-scholarly.wikidata.org/sparql> {{
+      SERVICE <{WD_SCHOLARLY_ENDPOINT}> {{
         OPTIONAL {{ wd:{reference_qid} rdfs:label ?referenceLabel . FILTER(LANG(?referenceLabel) = "en") }}
       }}
     }}

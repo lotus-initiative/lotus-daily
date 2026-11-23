@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
-from daily_lotus.log import PostRecord, load_extended_log, save_extended_log
+from daily_lotus.log import PostRecord, load_extended_log, merge_extended_log
 from daily_lotus.logging_config import add_logging_args, configure_logging_from_args
 from daily_lotus.mastodon_client import post_to_mastodon
 from daily_lotus.wikidata_query import (
@@ -392,7 +392,8 @@ def check_edits(dry_run: bool = False) -> None:
     """Check all entries in ``LOG_FILE`` for Wikidata edits and post signed updates."""
     logger.info("🕒 It is: %s", datetime.now(tz=timezone.utc).isoformat())
     logger.info("🔍 Checking for edits to previously posted occurrences...")
-    log = load_extended_log(LOG_FILE)
+    original = load_extended_log(LOG_FILE)
+    log = [entry.copy() for entry in original]
     changed = False
 
     for raw_entry in log:
@@ -406,7 +407,7 @@ def check_edits(dry_run: bool = False) -> None:
         if dry_run:
             logger.info("📝 Dry run mode: would update log with:\n%s", json.dumps(log, indent=2))
         else:
-            save_extended_log(log, LOG_FILE)
+            merge_extended_log(original, log, LOG_FILE)
             logger.info("📝 Updated log with new reply timestamps.")
 
 

@@ -1,9 +1,13 @@
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
+
+from filelock import FileLock
 
 LOG_FILE = "posted_log.json"
 EXTENDED_LOG_FILE = "posted_log_extended.json"
@@ -53,18 +57,36 @@ def load_extended_log(path: Path | str | None = None) -> list["PostRecord"]:
         return cast(list[PostRecord], json.load(f))
 
 
-def save_extended_log(log: list["PostRecord"], path: Path | str | None = None) -> None:
-    """Persist the extended post log atomically.
+@contextmanager
+def _edit_extended_log(path: Path) -> Iterator[list["PostRecord"]]:
+    target = path.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_name(f".{target.name}.lock")
+    with FileLock(lock_path, timeout=30):
+        records = load_extended_log(target)
+        yield records
+        write_json_atomic(target, records)
 
-    Parameters
-    ----------
-    log : list[PostRecord]
-        Entries to save.
-    path : Path | str | None
-        Destination path (defaults to ``EXTENDED_LOG_FILE``).
+
+def merge_extended_log(original: list["PostRecord"], edited: list["PostRecord"], path: Path) -> None:
+    """Save edits to unchanged records while preserving concurrent writes.
+
+    Scans run outside the lock. Unrelated records and records already changed
+    by another scan keep their current values.
     """
-    target = path if path is not None else EXTENDED_LOG_FILE
-    write_json_atomic(target, log)
+    updates = {
+        previous["toot_id"]: (previous, updated)
+        for previous, updated in zip(original, edited, strict=True)
+        if previous.get("toot_id") and previous != updated
+    }
+    if not updates:
+        return
+
+    with _edit_extended_log(path) as records:
+        for index, record in enumerate(records):
+            update = updates.get(record.get("toot_id"))
+            if update is not None and record == update[0]:
+                records[index] = update[1]
 
 
 def was_posted(compound_qid: str, taxon_qid: str) -> bool:
@@ -110,7 +132,6 @@ def record_post_extended(
     toot_id: str | None,
     smiles: str | None = None,
 ) -> None:
-    log = load_extended_log()
     now = datetime.now(timezone.utc).isoformat()
     record: PostRecord = {
         "compound_qid": compound_qid,
@@ -130,5 +151,5 @@ def record_post_extended(
     if smiles is not None:
         record["smiles"] = smiles
         record["smiles_last_checked"] = smiles
-    log.append(record)
-    save_extended_log(log)
+    with _edit_extended_log(Path(EXTENDED_LOG_FILE)) as records:
+        records.append(record)

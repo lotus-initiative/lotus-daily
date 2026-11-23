@@ -140,6 +140,7 @@ cython_debug/
 #.idea/
 
 posted_log.json
+.posted_log_extended.json.lock
 clientcred.secret
 register_app.py
 candidates.json

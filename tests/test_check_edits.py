@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from daily_lotus import check_edits, wikidata_query
+from pytest import MonkeyPatch
+
+from daily_lotus import check_edits, log, wikidata_query
 from daily_lotus.log import PostRecord
 
 
@@ -154,6 +156,33 @@ def test_legacy_entry_baselines_smiles_without_posting(monkeypatch, tmp_path: Pa
     assert post_calls == []
     saved = json.loads(log_path.read_text(encoding="utf-8"))
     assert saved[0]["smiles_last_checked"] == "CC1=CC(=O)C2CC1C2(C)C"
+
+
+def test_edit_scan_keeps_daily_post_recorded_during_scan(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    log.record_post_extended("Q1", "Q2", "Q3", "Legacy compound", "Legacy taxon", "Legacy reference", "111")
+    monkeypatch.setattr(check_edits, "occurrence_still_exists", lambda compound, taxon: True)
+    monkeypatch.setattr(
+        check_edits,
+        "fetch_current_labels",
+        lambda compound, taxon, reference: {
+            "compound_label": "Legacy compound",
+            "taxon_label": "Legacy taxon",
+            "reference_label": "Legacy reference",
+        },
+    )
+
+    def fetch_structure_while_daily_post_is_recorded(compound: str) -> str:
+        log.record_post_extended("Q4", "Q5", "Q6", "Daily compound", "Daily taxon", "Daily reference", "222")
+        return "CCO"
+
+    monkeypatch.setattr(check_edits, "fetch_current_smiles", fetch_structure_while_daily_post_is_recorded)
+    check_edits.check_edits()
+
+    saved = {entry["toot_id"]: entry for entry in log.load_extended_log()}
+    assert saved["111"]["smiles_last_checked"] == "CCO"
+    assert saved["222"]["compound_qid"] == "Q4"
+    assert log.was_posted("Q4", "Q5")
 
 
 def test_format_unified_summary_compacts_huge_smiles_under_500_chars() -> None:

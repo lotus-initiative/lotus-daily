@@ -3,8 +3,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pytest import MonkeyPatch
-
 from daily_lotus import check_edits, log, wikidata_query
 from daily_lotus.log import PostRecord
 
@@ -158,7 +156,7 @@ def test_legacy_entry_baselines_smiles_without_posting(monkeypatch, tmp_path: Pa
     assert saved[0]["smiles_last_checked"] == "CC1=CC(=O)C2CC1C2(C)C"
 
 
-def test_edit_scan_keeps_daily_post_recorded_during_scan(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_edit_scan_keeps_daily_post_recorded_during_scan(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
     log.record_post_extended("Q1", "Q2", "Q3", "Legacy compound", "Legacy taxon", "Legacy reference", "111")
     monkeypatch.setattr(check_edits, "occurrence_still_exists", lambda compound, taxon: True)

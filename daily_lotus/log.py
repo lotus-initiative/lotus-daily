@@ -1,7 +1,7 @@
 import json
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,7 +58,7 @@ def load_extended_log(path: Path | str | None = None) -> list["PostRecord"]:
 
 
 @contextmanager
-def _edit_extended_log(path: Path) -> Iterator[list["PostRecord"]]:
+def _edit_extended_log(path: Path) -> Generator[list["PostRecord"]]:
     target = path.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_name(f".{target.name}.lock")

@@ -44,7 +44,7 @@ hooks = [{ id = "uv-lock" }]
 
 [[repos]]
 repo = "local"
-hooks = [{ id = "ty-check", name = "ty-check", language = "python", entry = "ty check", exclude = '^(?!.*\.py$).*$', additional_dependencies = ["ty", "cairosvg>=2.9.0", "mastodon-py>=2.2.1", "python-dotenv>=1.2.2", "requests>=2.34.2", "sparqlwrapper>=2.0.0"] }]
+hooks = [{ id = "ty-check", name = "ty-check", language = "python", entry = "ty check", exclude = '^(?!.*\.py$).*$', additional_dependencies = ["ty", "cairosvg>=2.9.0", "filelock>=4.2.9", "mastodon-py>=2.2.1", "python-dotenv>=1.2.2", "requests>=2.34.2", "sparqlwrapper>=2.0.0"] }]
 
 [[repos]]
 repo = "https://github.com/zizmorcore/zizmor-pre-commit"

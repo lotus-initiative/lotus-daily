@@ -1,32 +1,107 @@
 import json
 import os
+import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TypedDict, cast
+from pathlib import Path
+from typing import Any, NotRequired, TypedDict, cast
+
+from filelock import FileLock
 
 LOG_FILE = "posted_log.json"
 EXTENDED_LOG_FILE = "posted_log_extended.json"
+
+
+def write_json_atomic(path: Path | str, data: Any) -> None:
+    """Atomically write JSON data to ``path`` via a temporary file in the same directory.
+
+    Parameters
+    ----------
+    path : Path | str
+        Destination JSON file path.
+    data : Any
+        JSON-serializable object to persist.
+    """
+    target = Path(path)
+    parent = target.parent if target.parent != Path() else Path(".")
+    parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=parent)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            json.dump(data, tmp_file, indent=2)
+            tmp_file.write("\n")
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def load_log() -> list[tuple[str, str]]:
     if not os.path.exists(LOG_FILE):
         return []
 
-    with open(LOG_FILE) as f:
+    with open(LOG_FILE, encoding="utf-8") as f:
         data = json.load(f)
         return [tuple(item) for item in data]  # Convert list[list[str]] → list[tuple[str, str]]
 
 
+def load_extended_log(path: Path | str | None = None) -> list["PostRecord"]:
+    target = Path(path) if path is not None else Path(EXTENDED_LOG_FILE)
+    if not target.exists():
+        return []
+    with target.open(encoding="utf-8") as f:
+        return cast(list[PostRecord], json.load(f))
+
+
+@contextmanager
+def _edit_extended_log(path: Path) -> Generator[list["PostRecord"]]:
+    target = path.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = target.with_name(f".{target.name}.lock")
+    with FileLock(lock_path, timeout=30):
+        records = load_extended_log(target)
+        yield records
+        write_json_atomic(target, records)
+
+
+def merge_extended_log(original: list["PostRecord"], edited: list["PostRecord"], path: Path) -> None:
+    """Save edits to unchanged records while preserving concurrent writes.
+
+    Scans run outside the lock. Unrelated records and records already changed
+    by another scan keep their current values.
+    """
+    updates = {
+        previous["toot_id"]: (previous, updated)
+        for previous, updated in zip(original, edited, strict=True)
+        if previous.get("toot_id") and previous != updated
+    }
+    if not updates:
+        return
+
+    with _edit_extended_log(path) as records:
+        for index, record in enumerate(records):
+            update = updates.get(record.get("toot_id"))
+            if update is not None and record == update[0]:
+                records[index] = update[1]
+
+
 def was_posted(compound_qid: str, taxon_qid: str) -> bool:
-    posted = load_log()
-    return (compound_qid, taxon_qid) in posted
+    if (compound_qid, taxon_qid) in load_log():
+        return True
+    return any(
+        entry.get("compound_qid") == compound_qid and entry.get("taxon_qid") == taxon_qid
+        for entry in load_extended_log()
+    )
 
 
 def record_post(compound_qid: str, taxon_qid: str) -> None:
     posted = load_log()
     posted.append((compound_qid, taxon_qid))  # Use tuple
-
-    with open(LOG_FILE, "w") as f:
-        json.dump(posted, f, indent=2)
+    write_json_atomic(LOG_FILE, posted)
 
 
 class PostRecord(TypedDict):
@@ -43,21 +118,8 @@ class PostRecord(TypedDict):
     taxon_label_last_checked: str | None
     reference_label_last_checked: str | None
     p703_exists_last_checked: bool | None
-
-
-# class PostRecord(PostRecord, total=False):  # optional keys go here
-#     last_reply_timestamp: Optional[str]
-#     compound_label_last_checked: Optional[str]
-#     taxon_label_last_checked: Optional[str]
-#     reference_label_last_checked: Optional[str]
-#     p703_exists_last_checked: Optional[bool]
-
-
-def load_extended_log() -> list[PostRecord]:
-    if not os.path.exists(EXTENDED_LOG_FILE):
-        return []
-    with open(EXTENDED_LOG_FILE) as f:
-        return cast(list[PostRecord], json.load(f))
+    smiles: NotRequired[str | None]
+    smiles_last_checked: NotRequired[str | None]
 
 
 def record_post_extended(
@@ -68,9 +130,10 @@ def record_post_extended(
     taxon_label: str,
     reference_label: str,
     toot_id: str | None,
+    smiles: str | None = None,
 ) -> None:
-    log = load_extended_log()
-    log.append({
+    now = datetime.now(timezone.utc).isoformat()
+    record: PostRecord = {
         "compound_qid": compound_qid,
         "taxon_qid": taxon_qid,
         "reference_qid": reference_qid,
@@ -81,9 +144,12 @@ def record_post_extended(
         "reference_label": reference_label,
         "reference_label_last_checked": reference_label,
         "toot_id": toot_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "last_reply_timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now,
+        "last_reply_timestamp": now,
         "p703_exists_last_checked": True,
-    })
-    with open(EXTENDED_LOG_FILE, "w") as f:
-        json.dump(log, f, indent=2)
+    }
+    if smiles is not None:
+        record["smiles"] = smiles
+        record["smiles_last_checked"] = smiles
+    with _edit_extended_log(Path(EXTENDED_LOG_FILE)) as records:
+        records.append(record)

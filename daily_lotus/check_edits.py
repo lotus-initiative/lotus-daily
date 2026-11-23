@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
 
@@ -295,11 +296,14 @@ def _post_edit_reply(
     image_alt_text = (
         f"Updated chemical structure of {entry['compound_label']} displaying atoms and bonds." if image_url else None
     )
+    event = json.dumps([entry["toot_id"], _parse_since_timestamp(entry).isoformat(), reply, new_smiles])
+    idempotency_key = sha256(event.encode()).hexdigest()
     post_to_mastodon(
         reply,
         image_url=image_url,
         image_alt_text=image_alt_text,
         in_reply_to_id=entry["toot_id"],
+        idempotency_key=idempotency_key,
     )
     entry["last_reply_timestamp"] = datetime.now(tz=timezone.utc).isoformat()
 
@@ -393,21 +397,21 @@ def check_edits(dry_run: bool = False) -> None:
     logger.info("🕒 It is: %s", datetime.now(tz=timezone.utc).isoformat())
     logger.info("🔍 Checking for edits to previously posted occurrences...")
     original = load_extended_log(LOG_FILE)
-    log = [entry.copy() for entry in original]
-    changed = False
+    edited = original.copy()
 
-    for raw_entry in log:
+    for index, entry in enumerate(original):
+        working_copy = entry.copy()
         try:
-            if process_entry(raw_entry, dry_run=dry_run):
-                changed = True
+            if process_entry(working_copy, dry_run=dry_run):
+                edited[index] = working_copy
         except Exception:
-            logger.exception("❌ Failed checking edits for %s", raw_entry.get("compound_qid", "unknown"))
+            logger.exception("❌ Failed checking edits for %s", entry.get("compound_qid", "unknown"))
 
-    if changed:
+    if edited != original:
         if dry_run:
-            logger.info("📝 Dry run mode: would update log with:\n%s", json.dumps(log, indent=2))
+            logger.info("📝 Dry run mode: would update log with:\n%s", json.dumps(edited, indent=2))
         else:
-            merge_extended_log(original, log, LOG_FILE)
+            merge_extended_log(original, edited, LOG_FILE)
             logger.info("📝 Updated log with new reply timestamps.")
 
 

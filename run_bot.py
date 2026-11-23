@@ -10,7 +10,7 @@ from daily_lotus.counter import format_counter_line, format_counter_summary, get
 from daily_lotus.formatter import MessageTooLongError, compose_message
 from daily_lotus.log import record_post_extended, was_posted
 from daily_lotus.logging_config import add_logging_args, configure_logging_from_args
-from daily_lotus.mastodon_client import post_to_mastodon
+from daily_lotus.mastodon_client import StatusUnconfirmedError, post_to_mastodon
 from daily_lotus.themes import Theme, UnknownThemeError, get_theme, get_theme_for_date, list_themes
 from daily_lotus.wikidata_query import SparqlQueryError, get_candidate_qids, get_molecule_details
 
@@ -132,7 +132,7 @@ def _publish_candidate(
         max_retries=max_retries,
         retry_delay=retry_delay,
     )
-    toot_id = str(status["id"]) if status else None
+    toot_id = str(status["id"])
 
     try:
         record_post_extended(
@@ -190,6 +190,8 @@ def _try_candidate(
             max_retries=max_retries,
             retry_delay=retry_delay,
         )
+    except StatusUnconfirmedError:
+        raise
     except Exception as exc:
         logger.warning("⚠️ Failed to post candidate %s: %s", qid, exc)
         return "failed"
@@ -226,7 +228,7 @@ def _run_pass(
     max_candidate_attempts: int,
     counter_text: str | None,
     theme: Theme | None,
-) -> bool:
+) -> bool | None:
     try:
         qids = load_candidates(
             use_cache=use_cache,
@@ -242,14 +244,18 @@ def _run_pass(
 
     failed_attempts = 0
     for qid in qids:
-        outcome = _try_candidate(
-            qid,
-            dry_run=dry_run,
-            max_retries=max_retries,
-            retry_delay=retry_delay,
-            counter_text=counter_text,
-            theme=theme,
-        )
+        try:
+            outcome = _try_candidate(
+                qid,
+                dry_run=dry_run,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+                counter_text=counter_text,
+                theme=theme,
+            )
+        except StatusUnconfirmedError:
+            logger.exception("Mastodon may have published %s. Check the account before rerunning.", qid)
+            return None
         if outcome == "posted":
             return True
         if outcome == "failed":
@@ -284,7 +290,7 @@ def run(
     use_cache : bool
         When ``True``, load candidate compound QIDs from ``candidates.json``.
     max_retries : int
-        Maximum retry attempts per SPARQL/media operation.
+        Maximum attempts per SPARQL, media or status operation.
     retry_delay : float
         Base delay in seconds between retries.
     max_candidate_attempts : int
@@ -320,6 +326,8 @@ def run(
         counter_text=counter_text,
         theme=active_theme,
     )
+    if ok is None:
+        return False
     if ok or active_theme is None or strict_theme:
         return ok
 
@@ -327,7 +335,7 @@ def run(
         "⚠️ Thematic run for '%s' yielded no postable candidate; falling back to unthemed occurrence.",
         active_theme.slug,
     )
-    return _run_pass(
+    fallback = _run_pass(
         dry_run=dry_run,
         use_cache=use_cache,
         max_retries=max_retries,
@@ -336,6 +344,7 @@ def run(
         counter_text=counter_text,
         theme=None,
     )
+    return fallback is True
 
 
 def _print_themes() -> None:
@@ -353,7 +362,9 @@ if __name__ == "__main__":
         action="store_true",
         help="Load candidate QIDs from candidates.json instead of querying Wikidata.",
     )
-    parser.add_argument("--max-retries", type=int, default=3, help="Max retries per SPARQL/media operation.")
+    parser.add_argument(
+        "--max-retries", type=int, default=3, help="Max attempts per SPARQL, media or status operation."
+    )
     parser.add_argument("--retry-delay", type=float, default=5.0, help="Base delay in seconds between retries.")
     parser.add_argument(
         "--max-candidate-attempts",

@@ -167,7 +167,8 @@ If `candidates.json` is missing or unreadable, `--use-cache` automatically falls
 back to a live SPARQL query. Both `get_candidate_qids` and
 `get_molecule_details` query QLever first and fall back to WDQS with
 exponential-backoff retries (`--max-retries`, `--retry-delay`,
-`--max-candidate-attempts`).
+`--max-candidate-attempts`). If the daily run reports an unconfirmed Mastodon
+status, check the account for the post before rerunning the job.
 
 #### Thematic posts
 

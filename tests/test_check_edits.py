@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from daily_lotus import check_edits, log, wikidata_query
+from mastodon.errors import MastodonNetworkError
+
+from daily_lotus import check_edits, log, mastodon_client, wikidata_query
 from daily_lotus.log import PostRecord
 
 
@@ -181,6 +183,59 @@ def test_edit_scan_keeps_daily_post_recorded_during_scan(monkeypatch, tmp_path: 
     assert saved["111"]["smiles_last_checked"] == "CCO"
     assert saved["222"]["compound_qid"] == "Q4"
     assert log.was_posted("Q4", "Q5")
+
+
+def test_edit_scan_retries_unconfirmed_reply_after_saving_another_entry(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    log.record_post_extended("Q1", "Q2", "Q3", "Old name", "Taxon", "Paper", "111", smiles="CC")
+    log.record_post_extended("Q4", "Q5", "Q6", "Legacy compound", "Taxon", "Paper", "222")
+    original_checkpoint = log.load_extended_log()[0]["last_reply_timestamp"]
+    monkeypatch.setattr(check_edits, "occurrence_still_exists", lambda compound, taxon: True)
+    monkeypatch.setattr(
+        check_edits,
+        "fetch_current_labels",
+        lambda compound, taxon, reference: {
+            "compound_label": "New name" if compound == "Q1" else "Legacy compound",
+            "taxon_label": "Taxon",
+            "reference_label": "Paper",
+        },
+    )
+    monkeypatch.setattr(check_edits, "get_label_change_editor", lambda *args: "Curator")
+    monkeypatch.setattr(check_edits, "fetch_current_smiles", lambda compound: "CC")
+    monkeypatch.setattr(mastodon_client.time, "sleep", lambda seconds: None)
+    accepted: dict[str, str] = {}
+    can_confirm = False
+
+    class FakeMastodon:
+        def status_post(
+            self,
+            message: str,
+            *,
+            in_reply_to_id: str,
+            idempotency_key: str | None = None,
+            **kwargs: object,
+        ) -> dict[str, str]:
+            assert in_reply_to_id == "111"
+            status_id = accepted.setdefault(idempotency_key or str(len(accepted)), str(len(accepted) + 1))
+            if not can_confirm:
+                raise MastodonNetworkError
+            return {"id": status_id}
+
+    monkeypatch.setattr(mastodon_client, "get_client", FakeMastodon)
+    check_edits.check_edits()
+
+    failed, legacy = log.load_extended_log()
+    assert failed["compound_label_last_checked"] == "Old name"
+    assert failed["last_reply_timestamp"] == original_checkpoint
+    assert legacy["smiles_last_checked"] == "CC"
+
+    can_confirm = True
+    check_edits.check_edits()
+
+    confirmed, _ = log.load_extended_log()
+    assert confirmed["compound_label_last_checked"] == "New name"
+    assert confirmed["last_reply_timestamp"] != original_checkpoint
+    assert len(accepted) == 1
 
 
 def test_format_unified_summary_compacts_huge_smiles_under_500_chars() -> None:

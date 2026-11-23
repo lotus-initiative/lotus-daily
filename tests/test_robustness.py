@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import requests
+from mastodon.errors import MastodonGatewayTimeoutError, MastodonNetworkError
 
 import run_bot
 from daily_lotus import log, mastodon_client, wikidata_query
@@ -236,6 +237,58 @@ def test_run_bot_returns_false_when_max_attempts_exhausted(monkeypatch, tmp_path
         include_counter=False,
     )
     assert ok is False
+
+
+def test_daily_run_recovers_accepted_status_after_lost_response(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_bot, "get_candidate_qids", lambda **kwargs: ["Q100", "Q200"])
+    monkeypatch.setattr(run_bot, "get_molecule_details", lambda compound, **kwargs: _sample_details(compound))
+    monkeypatch.setattr(mastodon_client, "fetch_image", lambda *args, **kwargs: (b"image", "image/png"))
+    accepted: dict[str, tuple[str, str]] = {}
+
+    class FakeMastodon:
+        def media_post(self, *args: object, **kwargs: object) -> str:
+            return "media"
+
+        def status_post(self, message: str, *, idempotency_key: str | None = None, **kwargs: object) -> dict[str, str]:
+            if idempotency_key and idempotency_key in accepted:
+                return {"id": accepted[idempotency_key][1]}
+            status_id = str(len(accepted) + 1)
+            accepted[idempotency_key or status_id] = (message, status_id)
+            if len(accepted) == 1:
+                raise MastodonNetworkError
+            return {"id": status_id}
+
+    monkeypatch.setattr(mastodon_client, "get_client", FakeMastodon)
+
+    assert run_bot.run(retry_delay=0, include_counter=False)
+    assert len(accepted) == 1
+    message, status_id = next(iter(accepted.values()))
+    [posted] = log.load_extended_log()
+    assert posted["toot_id"] == status_id
+    assert posted["compound_qid"] in message
+
+
+def test_daily_run_does_not_fall_back_when_status_remains_unconfirmed(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(run_bot, "get_candidate_qids", lambda **kwargs: ["Q100", "Q200"])
+    monkeypatch.setattr(run_bot, "get_molecule_details", lambda compound, **kwargs: _sample_details(compound))
+    monkeypatch.setattr(mastodon_client, "fetch_image", lambda *args, **kwargs: (b"image", "image/png"))
+    submitted_messages: list[str] = []
+
+    class FakeMastodon:
+        def media_post(self, *args: object, **kwargs: object) -> str:
+            return "media"
+
+        def status_post(self, message: str, **kwargs: object) -> None:
+            submitted_messages.append(message)
+            raise MastodonGatewayTimeoutError
+
+    monkeypatch.setattr(mastodon_client, "get_client", FakeMastodon)
+
+    assert not run_bot.run(theme="plant", max_retries=2, retry_delay=0, include_counter=False)
+    assert len(set(submitted_messages)) == 1
+    assert log.load_extended_log() == []
 
 
 def test_post_to_mastodon_does_not_post_status_when_image_fetch_fails(monkeypatch) -> None:

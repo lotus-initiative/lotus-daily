@@ -170,6 +170,19 @@ exponential-backoff retries (`--max-retries`, `--retry-delay`,
 `--max-candidate-attempts`). If the daily run reports an unconfirmed Mastodon
 status, check the account for the post before rerunning the job.
 
+#### LinkedIn cross-posting
+
+For a LinkedIn Page, request [Community Management API
+access](https://learn.microsoft.com/en-us/linkedin/marketing/community-management-app-review).
+Use the [LinkedIn token
+generator](https://www.linkedin.com/developers/tools/oauth/token-generator) with
+`w_organization_social` while signed in as a Page admin.
+
+Set `LINKEDIN_ACCESS_TOKEN` and `LINKEDIN_AUTHOR_URN` in the deployment's
+private `.env`. LinkedIn receives a copy only after a public Mastodon post is
+confirmed and saved, and the copy links to the original. Use `--no-linkedin` to
+publish only on Mastodon or `--dry-run` to preview both without publishing.
+
 #### Thematic posts
 
 List all built-in themes and weekday schedules:

@@ -120,6 +120,7 @@ class PostRecord(TypedDict):
     p703_exists_last_checked: bool | None
     smiles: NotRequired[str | None]
     smiles_last_checked: NotRequired[str | None]
+    linkedin_post_id: NotRequired[str]
 
 
 def record_post_extended(
@@ -153,3 +154,14 @@ def record_post_extended(
         record["smiles_last_checked"] = smiles
     with _edit_extended_log(Path(EXTENDED_LOG_FILE)) as records:
         records.append(record)
+
+
+def record_linkedin_post(toot_id: str, linkedin_post_id: str) -> None:
+    """Attach a confirmed LinkedIn post ID to the existing Mastodon history entry."""
+    with _edit_extended_log(Path(EXTENDED_LOG_FILE)) as records:
+        for record in records:
+            if record["toot_id"] == toot_id:
+                record["linkedin_post_id"] = linkedin_post_id
+                break
+        else:
+            raise KeyError(toot_id)

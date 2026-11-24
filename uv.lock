@@ -460,6 +460,7 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "cairosvg" },
+    { name = "filelock" },
     { name = "mastodon-py" },
     { name = "python-dotenv" },
     { name = "requests" },
@@ -484,6 +485,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cairosvg", specifier = ">=2.9.1" },
+    { name = "filelock", specifier = ">=4.2.9" },
     { name = "mastodon-py", specifier = ">=2.3.3" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "requests", specifier = ">=2.34.2" },

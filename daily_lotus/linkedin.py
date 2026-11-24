@@ -1,6 +1,7 @@
+import json
 import os
 import re
-from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from dotenv import load_dotenv
@@ -10,7 +11,7 @@ from daily_lotus.media import fetch_image
 load_dotenv()
 
 LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
-DEFAULT_LINKEDIN_API_VERSION = "202601"
+DEFAULT_LINKEDIN_API_VERSION = "202611"
 MAX_COMMENTARY_LENGTH = 3000
 MAX_ALT_TEXT_LENGTH = 400
 
@@ -132,11 +133,9 @@ def compose_linkedin_message(
             f"https://www.wikidata.org/wiki/{compound_qid}#P703 — if you spot an error, feel free to improve it!"
         ),
     ]
-    if mastodon_url:
-        lines.append(f"🐘 Read more & follow curation updates on Mastodon: {mastodon_url}")
-
-    lines.extend(["", "#DailyNP #OpenScience #LOTUS #Wikidata #LinkedOpenData"])
-    return _truncate_commentary("\n".join(lines))
+    tags = "\n\n#DailyNP #OpenScience #LOTUS #Wikidata #LinkedOpenData"
+    origin = f"\n🐘 Read more & follow curation updates on Mastodon: {mastodon_url}" if mastodon_url else ""
+    return _truncate_commentary("\n".join(lines), MAX_COMMENTARY_LENGTH - len(origin) - len(tags)) + origin + tags
 
 
 def _headers(token: str, version: str) -> dict[str, str]:
@@ -185,6 +184,9 @@ def upload_image(
     data = init_resp.json()["value"]
     upload_url = str(data["uploadUrl"])
     image_urn = str(data["image"])
+    destination = urlsplit(upload_url)
+    if destination.scheme != "https" or not (destination.hostname or "").endswith(".linkedin.com"):
+        raise ValueError(upload_url)
 
     put_resp = requests.put(
         upload_url,
@@ -193,8 +195,11 @@ def upload_image(
             "Content-Type": mime_type,
         },
         data=image_bytes,
+        allow_redirects=False,
         timeout=60,
     )
+    if put_resp.is_redirect:
+        raise requests.HTTPError(response=put_resp)
     put_resp.raise_for_status()
     return image_urn
 
@@ -220,7 +225,7 @@ def post_to_linkedin(
     author_urn : str | None
         Optional author URN (defaults to ``LINKEDIN_AUTHOR_URN``).
     version : str | None
-        Optional LinkedIn API version (defaults to ``LINKEDIN_API_VERSION`` or ``"202601"``).
+        Optional LinkedIn API version (defaults to ``LINKEDIN_API_VERSION``).
 
     Returns
     -------
@@ -236,7 +241,7 @@ def post_to_linkedin(
         urn = upload_image(img_bytes, mime_type, resolved_author_urn, resolved_token, resolved_version)
         uploaded_images.append({"id": urn, "altText": alt_text[:MAX_ALT_TEXT_LENGTH]})
 
-    payload: dict[str, Any] = {
+    payload: dict[str, object] = {
         "author": resolved_author_urn,
         "commentary": _truncate_commentary(text),
         "visibility": "PUBLIC",
@@ -257,7 +262,7 @@ def post_to_linkedin(
     resp = requests.post(
         f"{LINKEDIN_API_BASE}/posts",
         headers=_headers(resolved_token, resolved_version),
-        json=payload,
+        data=json.dumps(payload).encode(),
         timeout=30,
     )
     resp.raise_for_status()

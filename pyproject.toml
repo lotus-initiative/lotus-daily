@@ -17,6 +17,7 @@ classifiers = [
 ]
 dependencies = [
   "cairosvg>=2.9.1",
+  "filelock>=4.2.9",
   "mastodon-py>=2.3.3",
   "python-dotenv>=1.2.4",
   "requests>=2.34.2",

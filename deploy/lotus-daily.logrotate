@@ -1,0 +1,9 @@
+/path/to/lotus-daily/logs/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
